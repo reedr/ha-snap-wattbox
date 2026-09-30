@@ -122,6 +122,12 @@ class FakeWattbox:
                 self.outlets[n - 1] = action == "ON"
                 replies.append(f"~OutletStatus={self._status()}")
             return replies
+        if m := re.fullmatch(r"!OutletNameSetAll=(.*)", line):
+            names = re.findall(r"\{([^}]*)\}", m.group(1))
+            if len(names) != len(self.names):
+                return ["#Error"]
+            self.names = names
+            return ["OK"]
         if m := re.fullmatch(r"!AutoReboot=([01])", line):
             self.auto_reboot = m.group(1) == "1"
             return ["OK"]

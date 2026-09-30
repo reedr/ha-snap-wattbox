@@ -68,16 +68,40 @@
   },
   "entity": {
     "binary_sensor": {
-      "safe_voltage": { "name": "Supply voltage" },
-      "ups_power": { "name": "UPS utility power" },
-      "battery_health": { "name": "UPS battery" }
+      "safe_voltage": {
+        "name": "Supply voltage"
+      },
+      "ups_power": {
+        "name": "UPS utility power"
+      },
+      "battery_health": {
+        "name": "UPS battery"
+      }
     },
     "sensor": {
-      "battery_load": { "name": "UPS load" },
-      "battery_runtime": { "name": "UPS runtime" }
+      "battery_load": {
+        "name": "UPS load"
+      },
+      "battery_runtime": {
+        "name": "UPS runtime"
+      }
     },
     "switch": {
-      "auto_reboot": { "name": "Auto reboot" }
+      "auto_reboot": {
+        "name": "Auto reboot"
+      }
+    }
+  },
+  "services": {
+    "rename_outlet": {
+      "name": "Rename outlet",
+      "description": "Renames an outlet on the WattBox itself. The outlet's switch, reset button and meters take the new name; their entity IDs don't change.",
+      "fields": {
+        "name": {
+          "name": "Name",
+          "description": "Up to 31 plain ASCII characters, without braces or commas."
+        }
+      }
     }
   }
 }

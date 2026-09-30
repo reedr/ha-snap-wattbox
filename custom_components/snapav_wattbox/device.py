@@ -22,6 +22,7 @@ _USERNAME_PROMPT = b"Username: "
 _PASSWORD_PROMPT = b"Password: "
 _REPLY_RE = re.compile(r"([?~])([^=]+)=(.*)")
 _NAME_RE = re.compile(r"\{([^}]*)\}")
+MAX_OUTLET_NAME = 31
 
 
 class WattboxError(Exception):
@@ -104,6 +105,18 @@ def parse_outlet_names(data: str, count: int) -> list[str]:
     return [name or f"Outlet {i + 1}" for i, name in enumerate(names[:count])]
 
 
+def validate_outlet_name(name: str) -> str:
+    """Return the trimmed name, or raise ValueError if the unit can't store it."""
+    name = name.strip()
+    if not name:
+        raise ValueError("the name is empty")
+    if len(name) > MAX_OUTLET_NAME:
+        raise ValueError(f"the name is longer than {MAX_OUTLET_NAME} characters")
+    if not name.isascii() or any(c in name for c in "{},"):
+        raise ValueError("the name can only use plain ASCII, without braces or commas")
+    return name
+
+
 def parse_outlet_status(data: str) -> tuple[bool, ...]:
     """Parse ``1,0,1,...``."""
     return tuple(part.strip() == "1" for part in data.split(","))
@@ -163,6 +176,7 @@ class WattboxDevice:
         self._writer: asyncio.StreamWriter | None = None
         self._listener: asyncio.Task | None = None
         self._connect_lock = asyncio.Lock()
+        self._rename_lock = asyncio.Lock()
         self._pending: deque[_Pending] = deque()
         self._push: Callable[[WattboxState | None], None] | None = None
         self._power_supported = True
@@ -446,6 +460,22 @@ class WattboxDevice:
         await self._command("AutoReboot", "1" if enabled else "0")
         value = await self._query("AutoReboot")
         self._publish(replace(self.state, auto_reboot=value.strip() == "1"))
+
+    async def async_set_outlet_name(self, outlet: int, name: str) -> None:
+        """Rename an outlet (1-based) on the unit."""
+        name = validate_outlet_name(name)
+        if self.info is None:
+            await self.async_get_info()
+        assert self.info is not None
+        count = len(self.info.outlet_names)
+        # The unit only takes spaces through OutletNameSetAll, so re-read the
+        # current names and send them all back with this one changed.
+        async with self._rename_lock:
+            names = parse_outlet_names(await self._query("OutletName"), count)
+            names[outlet - 1] = name
+            await self._command("OutletNameSetAll", ",".join(f"{{{n}}}" for n in names))
+            names = parse_outlet_names(await self._query("OutletName"), count)
+        self.info = replace(self.info, outlet_names=names)
 
     async def async_test_connection(self) -> WattboxInfo:
         """Log in, read the unit's identity, and disconnect."""

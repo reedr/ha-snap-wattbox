@@ -91,5 +91,17 @@
         "name": "Auto reboot"
       }
     }
+  },
+  "services": {
+    "rename_outlet": {
+      "name": "Rename outlet",
+      "description": "Renames an outlet on the WattBox itself. The outlet's switch, reset button and meters take the new name; their entity IDs don't change.",
+      "fields": {
+        "name": {
+          "name": "Name",
+          "description": "Up to 31 plain ASCII characters, without braces or commas."
+        }
+      }
+    }
   }
 }

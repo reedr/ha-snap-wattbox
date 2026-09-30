@@ -2,9 +2,16 @@
 
 from __future__ import annotations
 
-from homeassistant.const import CONF_HOST, CONF_PASSWORD, CONF_USERNAME, Platform
+import voluptuous as vol
+from homeassistant.components.switch import DOMAIN as SWITCH_DOMAIN
+from homeassistant.components.switch import SwitchDeviceClass
+from homeassistant.const import CONF_HOST, CONF_NAME, CONF_PASSWORD, CONF_USERNAME, Platform
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers import service
+from homeassistant.helpers.typing import ConfigType
 
+from .const import DOMAIN
 from .coordinator import WattboxConfigEntry, WattboxCoordinator
 from .device import WattboxDevice
 from .migration import async_migrate_legacy_entry, async_migrate_unique_ids
@@ -15,6 +22,22 @@ _PLATFORMS: list[Platform] = [
     Platform.SENSOR,
     Platform.SWITCH,
 ]
+
+CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
+
+
+async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
+    """Register the rename_outlet action on outlet switches."""
+    service.async_register_platform_entity_service(
+        hass,
+        DOMAIN,
+        "rename_outlet",
+        entity_domain=SWITCH_DOMAIN,
+        entity_device_classes=[SwitchDeviceClass.OUTLET],
+        schema={vol.Required(CONF_NAME): cv.string},
+        func="async_rename_outlet",
+    )
+    return True
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: WattboxConfigEntry) -> bool:

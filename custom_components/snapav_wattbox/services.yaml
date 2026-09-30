@@ -1,0 +1,12 @@
+rename_outlet:
+  target:
+    entity:
+      integration: snapav_wattbox
+      domain: switch
+      device_class: outlet
+  fields:
+    name:
+      required: true
+      example: "Rack Switch"
+      selector:
+        text:

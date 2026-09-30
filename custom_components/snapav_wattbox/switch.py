@@ -7,9 +7,11 @@ from typing import Any
 from homeassistant.components.switch import SwitchDeviceClass, SwitchEntity
 from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .coordinator import WattboxConfigEntry, WattboxCoordinator
+from .device import validate_outlet_name
 from .entity import WattboxEntity, WattboxOutletEntity
 
 PARALLEL_UPDATES = 0
@@ -53,6 +55,15 @@ class WattboxOutletSwitch(WattboxOutletEntity, SwitchEntity):
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn the outlet off."""
         await self._async_run(self.coordinator.device.async_set_outlet(self._outlet, "OFF"))
+
+    async def async_rename_outlet(self, name: str) -> None:
+        """Rename the outlet on the unit, then reload so every entity of it picks up the name."""
+        try:
+            name = validate_outlet_name(name)
+        except ValueError as err:
+            raise ServiceValidationError(f"Can't name an outlet {name!r}: {err}") from err
+        await self._async_run(self.coordinator.device.async_set_outlet_name(self._outlet, name))
+        self.hass.config_entries.async_schedule_reload(self.coordinator.config_entry.entry_id)
 
 
 class WattboxAutoRebootSwitch(WattboxEntity, SwitchEntity):

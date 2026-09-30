@@ -19,6 +19,23 @@ pushed to Home Assistant straight away. Meters are polled every 10 s.
 
 Meter entities aren't created on models without a meter (WB-150/250).
 
+## Renaming outlets
+
+The **Rename outlet** action (`snapav_wattbox.rename_outlet`) renames an outlet on the WattBox itself.
+Target an outlet switch and give the new name (up to 31 plain ASCII characters, no braces or commas):
+
+```yaml
+action: snapav_wattbox.rename_outlet
+target:
+  entity_id: switch.av_rack_1_outlet_10
+data:
+  name: Rack Fan
+```
+
+The entry reloads, and the outlet's switch, reset button and meters take the new name. Their entity
+IDs don't change; rename those in Home Assistant if you want them to match. A name you've set on an
+entity in Home Assistant still overrides the outlet's name.
+
 ## Install
 
 Add this repository to HACS as a custom repository (category: Integration), install

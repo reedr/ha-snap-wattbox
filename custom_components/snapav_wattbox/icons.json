@@ -1,0 +1,7 @@
+{
+  "services": {
+    "rename_outlet": {
+      "service": "mdi:rename"
+    }
+  }
+}

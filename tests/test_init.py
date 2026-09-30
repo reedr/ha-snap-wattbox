@@ -5,9 +5,11 @@ from __future__ import annotations
 import asyncio
 from datetime import timedelta
 
+import pytest
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.const import STATE_OFF, STATE_ON, STATE_UNAVAILABLE
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import ServiceNotSupported, ServiceValidationError
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 from homeassistant.util import dt as dt_util
@@ -134,3 +136,54 @@ async def test_bad_login_starts_reauth(hass: HomeAssistant, wattbox) -> None:
     assert entry.state is ConfigEntryState.SETUP_ERROR
     flows = hass.config_entries.flow.async_progress()
     assert [f["context"]["source"] for f in flows] == ["reauth"]
+
+
+async def test_rename_outlet(hass: HomeAssistant, wattbox) -> None:
+    """Renaming changes the unit's name and the entities' names, not their IDs."""
+    await _setup(hass)
+    await hass.services.async_call(
+        DOMAIN,
+        "rename_outlet",
+        {"entity_id": "switch.av_rack_1_amp", "name": " Rack Amp "},
+        blocking=True,
+    )
+    await hass.async_block_till_done()
+    assert wattbox.names[1] == "Rack Amp"
+    assert wattbox.names[0] == "Switch"
+    assert "!OutletNameSetAll={Switch},{Rack Amp},{TV},{Roku},{Port},{Savant}" in wattbox.commands
+    amp = hass.states.get("switch.av_rack_1_amp")
+    assert amp.attributes["friendly_name"] == "AV-Rack-1 Rack Amp"
+    assert (
+        hass.states.get("button.av_rack_1_amp_reset").attributes["friendly_name"]
+        == "AV-Rack-1 Rack Amp Reset"
+    )
+    assert (
+        hass.states.get("sensor.av_rack_1_amp_power").attributes["friendly_name"]
+        == "AV-Rack-1 Rack Amp Power"
+    )
+
+
+@pytest.mark.parametrize("name", ["", "x" * 32, "A{B}", "A,B", "Café"])
+async def test_rename_outlet_rejects(hass: HomeAssistant, wattbox, name: str) -> None:
+    await _setup(hass)
+    with pytest.raises(ServiceValidationError):
+        await hass.services.async_call(
+            DOMAIN,
+            "rename_outlet",
+            {"entity_id": "switch.av_rack_1_amp", "name": name},
+            blocking=True,
+        )
+    assert not any(c.startswith("!OutletNameSetAll") for c in wattbox.commands)
+
+
+async def test_rename_skips_auto_reboot(hass: HomeAssistant, wattbox) -> None:
+    """The action only applies to outlet switches."""
+    await _setup(hass)
+    with pytest.raises(ServiceNotSupported):
+        await hass.services.async_call(
+            DOMAIN,
+            "rename_outlet",
+            {"entity_id": "switch.av_rack_1_auto_reboot", "name": "Nope"},
+            blocking=True,
+        )
+    assert not any(c.startswith("!OutletNameSetAll") for c in wattbox.commands)
