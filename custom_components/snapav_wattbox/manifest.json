@@ -1,14 +1,12 @@
 {
-  "domain": "Wattbox",
-  "name": "SnapAV Wattbox",
-  "version": "0.1.0",
-  "integration_type": "device",
-  "codeowners": [
-    "@reedr"
-  ],
+  "domain": "snapav_wattbox",
+  "name": "SnapAV WattBox",
+  "codeowners": ["@reedr"],
   "config_flow": true,
-  "documentation": "https://www.home-assistant.io/integrations/Wattbox",
-  "iot_class": "local_polling",
-  "quality_scale": "bronze",
-  "requirements": []
+  "documentation": "https://github.com/reedr/ha-snap-wattbox",
+  "integration_type": "device",
+  "iot_class": "local_push",
+  "issue_tracker": "https://github.com/reedr/ha-snap-wattbox/issues",
+  "requirements": [],
+  "version": "0.2.0"
 }

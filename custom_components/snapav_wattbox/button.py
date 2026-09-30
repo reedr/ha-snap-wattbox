@@ -1,60 +1,41 @@
-"""Support for SnapAV Wattbox outlets."""
+"""Outlet reset (power-cycle) buttons."""
 
 from __future__ import annotations
 
-import logging
-from typing import Any
+from homeassistant.components.button import ButtonDeviceClass, ButtonEntity
+from homeassistant.const import EntityCategory
+from homeassistant.core import HomeAssistant
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from homeassistant.components.button import (
-    ButtonDeviceClass,
-    ButtonEntity,
-    ButtonEntityDescription,
-)
-from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from .coordinator import WattboxConfigEntry, WattboxCoordinator
+from .entity import WattboxOutletEntity
 
-from .coordinator import WattboxConfigEntry
-from .entity import WattboxEntity
-
-_LOGGER = logging.getLogger(__name__)
-
-async def async_setup_entry(hass: HomeAssistant,
-                            config_entry: WattboxConfigEntry,
-                            async_add_entities: AddEntitiesCallback) -> None:
-    """Add sensors for passed config_entry in HA."""
-    coord = config_entry.runtime_data
-    outlets = coord.device.outlet_names
-    new_entities = [WattboxButton(coord, name=outlets[i] + " Reset", index=i+1) for i in range(len(outlets))]
-    if new_entities:
-        async_add_entities(new_entities)
-
-DESC = ButtonEntityDescription(
-    key="outlet",
-    translation_key="outlet",
-    device_class=ButtonDeviceClass.RESTART
-)
+PARALLEL_UPDATES = 0
 
 
-class WattboxButton(ButtonEntity, WattboxEntity):
-    """Port state sensor."""
+async def async_setup_entry(
+    hass: HomeAssistant,
+    entry: WattboxConfigEntry,
+    async_add_entities: AddConfigEntryEntitiesCallback,
+) -> None:
+    """Add a reset button per outlet."""
+    coord = entry.runtime_data
+    async_add_entities(
+        WattboxResetButton(coord, i + 1) for i in range(len(coord.info.outlet_names))
+    )
 
-    def __init__(self, coord, name: str, index: int) -> None:
-        """Set the class."""
-        super().__init__(coord, DESC, name)
-        self._index = index
 
-    @property
-    def entity_type(self) -> str:
-        """Type of entity."""
-        return "Button"
+class WattboxResetButton(WattboxOutletEntity, ButtonEntity):
+    """Power-cycle an outlet, honouring its power-on delay."""
 
-    async def async_press(self, **kwargs: Any) -> None:
-        """Turn the entity on."""
-        await self.coordinator.device.async_reset(self._index)
+    _attr_device_class = ButtonDeviceClass.RESTART
+    _attr_entity_category = EntityCategory.CONFIG
 
-    @callback
-    def _handle_coordinator_update(self) -> None:
-        """Handle updated data from the coordinator."""
-        if self.coordinator.device is not None:
-            self._state = self.coordinator.device.is_on(self._index-1)
-            self.async_write_ha_state()
+    def __init__(self, coordinator: WattboxCoordinator, outlet: int) -> None:
+        """Set up the button."""
+        super().__init__(coordinator, "reset", outlet)
+        self._attr_name = f"{self._outlet_name} Reset"
+
+    async def async_press(self) -> None:
+        """Reset the outlet."""
+        await self._async_run(self.coordinator.device.async_set_outlet(self._outlet, "RESET"))

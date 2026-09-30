@@ -1,80 +1,79 @@
-"""Support for SnapAV Wattbox outlets."""
+"""Outlet and auto-reboot switches."""
 
 from __future__ import annotations
 
-import logging
 from typing import Any
 
-from homeassistant.components.switch import (
-    SwitchDeviceClass,
-    SwitchEntity,
-    SwitchEntityDescription,
-)
-from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.components.switch import SwitchDeviceClass, SwitchEntity
+from homeassistant.const import EntityCategory
+from homeassistant.core import HomeAssistant
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from .coordinator import WattboxConfigEntry
-from .entity import WattboxEntity
+from .coordinator import WattboxConfigEntry, WattboxCoordinator
+from .entity import WattboxEntity, WattboxOutletEntity
 
-_LOGGER = logging.getLogger(__name__)
-
-async def async_setup_entry(hass: HomeAssistant,
-                            config_entry: WattboxConfigEntry,
-                            async_add_entities: AddEntitiesCallback) -> None:
-    """Add sensors for passed config_entry in HA."""
-    coord = config_entry.runtime_data
-    outlets = coord.device.outlet_names
-    new_entities = [WattboxSwitch(coord, name=outlets[i], index=i+1) for i in range(len(outlets))]
-    if new_entities:
-        async_add_entities(new_entities)
-
-DESC = SwitchEntityDescription(
-    key="outlet",
-    translation_key="outlet",
-    device_class=SwitchDeviceClass.OUTLET
-)
+PARALLEL_UPDATES = 0
 
 
-class WattboxSwitch(SwitchEntity, WattboxEntity):
-    """Port state sensor."""
+async def async_setup_entry(
+    hass: HomeAssistant,
+    entry: WattboxConfigEntry,
+    async_add_entities: AddConfigEntryEntitiesCallback,
+) -> None:
+    """Add a switch per outlet, plus auto reboot."""
+    coord = entry.runtime_data
+    entities: list[SwitchEntity] = [
+        WattboxOutletSwitch(coord, i + 1) for i in range(len(coord.info.outlet_names))
+    ]
+    if coord.data.auto_reboot is not None:
+        entities.append(WattboxAutoRebootSwitch(coord))
+    async_add_entities(entities)
 
-    def __init__(self, coord, name: str, index: int) -> None:
-        """Set the class."""
-        _LOGGER.debug("switch %s %d", name, index)
-        super().__init__(coord, DESC, name)
-        self._index = index
+
+class WattboxOutletSwitch(WattboxOutletEntity, SwitchEntity):
+    """Outlet power."""
+
+    _attr_device_class = SwitchDeviceClass.OUTLET
+
+    def __init__(self, coordinator: WattboxCoordinator, outlet: int) -> None:
+        """Set up the switch."""
+        super().__init__(coordinator, "outlet", outlet)
+        self._attr_name = self._outlet_name
 
     @property
-    def is_on(self):
-        """Return state."""
-        return self._state
-
-    @property
-    def entity_type(self) -> str:
-        """Type of entity."""
-        return "switch"
+    def is_on(self) -> bool | None:
+        """Whether the outlet is on."""
+        outlets = self.coordinator.data.outlets_on
+        return outlets[self._outlet - 1] if self._outlet <= len(outlets) else None
 
     async def async_turn_on(self, **kwargs: Any) -> None:
-        """Turn the entity on."""
-        await self.coordinator.device.async_turn_on(self._index)
-        self._state = True
-        self.schedule_update_ha_state(True)
+        """Turn the outlet on."""
+        await self._async_run(self.coordinator.device.async_set_outlet(self._outlet, "ON"))
 
     async def async_turn_off(self, **kwargs: Any) -> None:
-        """Turn the entity off."""
-        await self.coordinator.device.async_turn_off(self._index)
-        self._state = False
-        self.schedule_update_ha_state(True)
+        """Turn the outlet off."""
+        await self._async_run(self.coordinator.device.async_set_outlet(self._outlet, "OFF"))
 
-    async def async_toggle(self, **kwargs: Any) -> None:
-        """Turn the entity off."""
-        await self.coordinator.device.async_toggle(self._index)
-        self._state = not self._state
-        self.schedule_update_ha_state(True)
 
-    @callback
-    def _handle_coordinator_update(self) -> None:
-        """Handle updated data from the coordinator."""
-        if self.coordinator.device is not None:
-            self._state = self.coordinator.device.is_on(self._index-1)
-            self.async_write_ha_state()
+class WattboxAutoRebootSwitch(WattboxEntity, SwitchEntity):
+    """Whether the unit power-cycles outlets when monitored hosts stop answering."""
+
+    _attr_entity_category = EntityCategory.CONFIG
+    _attr_translation_key = "auto_reboot"
+
+    def __init__(self, coordinator: WattboxCoordinator) -> None:
+        """Set up the switch."""
+        super().__init__(coordinator, "auto_reboot")
+
+    @property
+    def is_on(self) -> bool | None:
+        """Whether auto reboot is enabled."""
+        return self.coordinator.data.auto_reboot
+
+    async def async_turn_on(self, **kwargs: Any) -> None:
+        """Enable auto reboot."""
+        await self._async_run(self.coordinator.device.async_set_auto_reboot(True))
+
+    async def async_turn_off(self, **kwargs: Any) -> None:
+        """Disable auto reboot."""
+        await self._async_run(self.coordinator.device.async_set_auto_reboot(False))

@@ -9,9 +9,9 @@
           "manual": "Set up a new WattBox"
         },
         "data": {
-          "host": "Host",
-          "username": "Username",
-          "password": "Password"
+          "host": "[%key:common::config_flow::data::host%]",
+          "username": "[%key:common::config_flow::data::username%]",
+          "password": "[%key:common::config_flow::data::password%]"
         },
         "data_description": {
           "host": "Hostname or IP address of the WattBox."
@@ -25,16 +25,16 @@
         "title": "Log in to {title}",
         "description": "The WattBox at {host} rejected the stored username or password.",
         "data": {
-          "username": "Username",
-          "password": "Password"
+          "username": "[%key:common::config_flow::data::username%]",
+          "password": "[%key:common::config_flow::data::password%]"
         }
       },
       "reconfigure": {
         "title": "Reconfigure WattBox",
         "data": {
-          "host": "Host",
-          "username": "Username",
-          "password": "Password"
+          "host": "[%key:common::config_flow::data::host%]",
+          "username": "[%key:common::config_flow::data::username%]",
+          "password": "[%key:common::config_flow::data::password%]"
         },
         "data_description": {
           "host": "Hostname or IP address of the WattBox."
@@ -42,15 +42,15 @@
       }
     },
     "error": {
-      "cannot_connect": "Failed to connect",
-      "invalid_auth": "Invalid authentication",
-      "unknown": "Unexpected error"
+      "cannot_connect": "[%key:common::config_flow::error::cannot_connect%]",
+      "invalid_auth": "[%key:common::config_flow::error::invalid_auth%]",
+      "unknown": "[%key:common::config_flow::error::unknown%]"
     },
     "abort": {
-      "already_configured": "Device is already configured",
+      "already_configured": "[%key:common::config_flow::abort::already_configured_device%]",
       "no_legacy_entry": "There is no un-imported entry from the old Wattbox integration.",
-      "reauth_successful": "Re-authentication was successful",
-      "reconfigure_successful": "Re-configuration was successful",
+      "reauth_successful": "[%key:common::config_flow::abort::reauth_successful%]",
+      "reconfigure_successful": "[%key:common::config_flow::abort::reconfigure_successful%]",
       "wrong_device": "That address belongs to a different WattBox."
     }
   },
@@ -68,28 +68,16 @@
   },
   "entity": {
     "binary_sensor": {
-      "safe_voltage": {
-        "name": "Supply voltage"
-      },
-      "ups_power": {
-        "name": "UPS utility power"
-      },
-      "battery_health": {
-        "name": "UPS battery"
-      }
+      "safe_voltage": { "name": "Supply voltage" },
+      "ups_power": { "name": "UPS utility power" },
+      "battery_health": { "name": "UPS battery" }
     },
     "sensor": {
-      "battery_load": {
-        "name": "UPS load"
-      },
-      "battery_runtime": {
-        "name": "UPS runtime"
-      }
+      "battery_load": { "name": "UPS load" },
+      "battery_runtime": { "name": "UPS runtime" }
     },
     "switch": {
-      "auto_reboot": {
-        "name": "Auto reboot"
-      }
+      "auto_reboot": { "name": "Auto reboot" }
     }
   }
 }
