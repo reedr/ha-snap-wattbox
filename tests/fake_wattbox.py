@@ -106,7 +106,7 @@ class FakeWattbox:
         if line in simple:
             return [f"{line}={simple[line]}"]
         if line == "?PowerStatus" and self.metering:
-            return ["?PowerStatus=1.50,180.00,120.10,1"]
+            return ["?PowerStatus=1.50,180.00,120.10,0"]
         if (m := re.fullmatch(r"\?OutletPowerStatus=(\d+)", line)) and self.metering:
             n = int(m.group(1))
             watts = 10.0 * n if self.outlets[n - 1] else 0.0

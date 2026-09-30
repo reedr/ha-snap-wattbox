@@ -32,7 +32,7 @@ SAFE_VOLTAGE = WattboxBinarySensorDescription(
     key="safe_voltage",
     translation_key="safe_voltage",
     device_class=BinarySensorDeviceClass.SAFETY,
-    value_fn=lambda s: not s.power.safe_voltage if s.power else None,
+    value_fn=lambda s: s.power.voltage_fault if s.power else None,
 )
 
 UPS_BINARY_SENSORS = (

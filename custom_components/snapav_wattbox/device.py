@@ -68,7 +68,9 @@ class PowerStatus:
     amps: float
     watts: float
     volts: float
-    safe_voltage: bool
+    # The protocol document calls the last field "safe voltage status", but units on
+    # firmware 2.5 report 0 at a normal 123 V, so anything but 0 is treated as a fault.
+    voltage_fault: bool
 
 
 @dataclass(frozen=True)
@@ -108,9 +110,9 @@ def parse_outlet_status(data: str) -> tuple[bool, ...]:
 
 
 def parse_power_status(data: str) -> PowerStatus:
-    """Parse ``amps,watts,volts,safe``."""
-    amps, watts, volts, safe = (part.strip() for part in data.split(","))
-    return PowerStatus(float(amps), float(watts), float(volts), safe == "1")
+    """Parse ``amps,watts,volts,flag``."""
+    amps, watts, volts, flag = (part.strip() for part in data.split(","))
+    return PowerStatus(float(amps), float(watts), float(volts), flag != "0")
 
 
 def parse_outlet_power(data: str) -> tuple[int, OutletPower]:

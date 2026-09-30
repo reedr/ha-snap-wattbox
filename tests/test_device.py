@@ -26,8 +26,9 @@ def test_parsers() -> None:
     assert parse_outlet_names("{A},{B C},{}", 4) == ["A", "B C", "Outlet 3", "Outlet 4"]
     assert parse_outlet_names("{A},{B},{C}", 2) == ["A", "B"]
     assert parse_outlet_power("3,1.01,0.02,116.50") == (3, OutletPower(1.01, 0.02, 116.5))
-    status = parse_power_status("60.00,600.00,110.00,1")
-    assert (status.amps, status.watts, status.volts, status.safe_voltage) == (60, 600, 110, True)
+    status = parse_power_status("60.00,600.00,110.00,0")
+    assert (status.amps, status.watts, status.volts, status.voltage_fault) == (60, 600, 110, False)
+    assert parse_power_status("0.01,22.31,90.00,1").voltage_fault
     ups = parse_ups_status("50,0,Good,False,25,True,False")
     assert ups.battery_charge == 50 and ups.battery_healthy and not ups.power_lost
     assert ups.runtime == 25 and ups.alarm_enabled and not ups.alarm_muted
@@ -48,7 +49,7 @@ async def test_info_and_update(hass: HomeAssistant, wattbox) -> None:
     wattbox.outlets[1] = False
     state = await dev.async_update(outlet_metering=True)
     assert state.outlets_on == (True, False, True, True, True, True)
-    assert state.power.watts == 180 and state.power.safe_voltage
+    assert state.power.watts == 180 and not state.power.voltage_fault
     assert state.outlet_power[1].watts == 10 and state.outlet_power[2].watts == 0
     assert state.auto_reboot is False
     assert state.ups is None
