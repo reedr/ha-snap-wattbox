@@ -5,8 +5,15 @@ from __future__ import annotations
 import voluptuous as vol
 from homeassistant.components.switch import DOMAIN as SWITCH_DOMAIN
 from homeassistant.components.switch import SwitchDeviceClass
-from homeassistant.const import CONF_HOST, CONF_NAME, CONF_PASSWORD, CONF_USERNAME, Platform
-from homeassistant.core import HomeAssistant
+from homeassistant.const import (
+    CONF_HOST,
+    CONF_NAME,
+    CONF_PASSWORD,
+    CONF_USERNAME,
+    EVENT_HOMEASSISTANT_STOP,
+    Platform,
+)
+from homeassistant.core import Event, HomeAssistant
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import service
 from homeassistant.helpers.typing import ConfigType
@@ -50,6 +57,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: WattboxConfigEntry) -> b
     coord = WattboxCoordinator(hass, entry, dev)
     entry.runtime_data = coord
     entry.async_on_unload(dev.async_close)
+
+    async def _async_stop(_event: Event) -> None:
+        await dev.async_close()
+
+    # Entries aren't unloaded at shutdown; log out so the unit frees the session.
+    entry.async_on_unload(hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STOP, _async_stop))
     await coord.async_config_entry_first_refresh()
 
     async_migrate_unique_ids(hass, entry, coord.info)

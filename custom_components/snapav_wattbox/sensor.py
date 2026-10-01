@@ -122,14 +122,14 @@ async def async_setup_entry(
     """Add meter sensors the unit supports, and UPS sensors if one is attached."""
     coord = entry.runtime_data
     entities: list[SensorEntity] = []
-    if coord.data.power is not None:
+    if coord.device.metered:
         entities += [WattboxSensor(coord, desc) for desc in POWER_SENSORS]
     if coord.info.has_ups:
         entities += [WattboxSensor(coord, desc) for desc in UPS_SENSORS]
-    if entry.options.get(CONF_OUTLET_METERING, DEFAULT_OUTLET_METERING):
+    if coord.device.metered and entry.options.get(CONF_OUTLET_METERING, DEFAULT_OUTLET_METERING):
         entities += [
             WattboxOutletSensor(coord, desc, outlet)
-            for outlet in sorted(coord.data.outlet_power)
+            for outlet in range(1, len(coord.info.outlet_names) + 1)
             for desc in OUTLET_SENSORS
         ]
     async_add_entities(entities)

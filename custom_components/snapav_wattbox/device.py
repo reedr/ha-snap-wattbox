@@ -105,6 +105,17 @@ def parse_outlet_names(data: str, count: int) -> list[str]:
     return [name or f"Outlet {i + 1}" for i, name in enumerate(names[:count])]
 
 
+def raw_outlet_names(data: str, count: int) -> list[str]:
+    """The names exactly as the unit holds them, padded with defaults only if missing."""
+    names = [name.strip() for name in _NAME_RE.findall(data)][:count]
+    return names + [f"Outlet {i + 1}" for i in range(len(names), count)]
+
+
+def is_metered(model: str) -> bool:
+    """Whether the model has power metering (all but the WB-150 and WB-250)."""
+    return re.match(r"WB-?(150|250)\b", model.strip(), re.IGNORECASE) is None
+
+
 def validate_outlet_name(name: str) -> str:
     """Return the trimmed name, or raise ValueError if the unit can't store it."""
     name = name.strip()
@@ -179,7 +190,9 @@ class WattboxDevice:
         self._rename_lock = asyncio.Lock()
         self._pending: deque[_Pending] = deque()
         self._push: Callable[[WattboxState | None], None] | None = None
-        self._power_supported = True
+        self._closed = False
+        self._logged_in = False
+        self._publish_count = 0
         self.info: WattboxInfo | None = None
         self.state = WattboxState()
 
@@ -209,9 +222,12 @@ class WattboxDevice:
         """Answer the username and password prompts."""
         assert self._writer is not None
         await self._read_until_any(_USERNAME_PROMPT)
-        self._write(self._username)
-        await self._read_until_any(_PASSWORD_PROMPT)
-        self._write(self._password)
+        try:
+            self._write(self._username)
+            await self._read_until_any(_PASSWORD_PROMPT)
+            self._write(self._password)
+        except UnicodeEncodeError as err:
+            raise WattboxAuthError("the unit only accepts ASCII usernames and passwords") from err
         # A bad login is answered with the username prompt again.
         if await self._read_until_any(_LOGIN_OK, _USERNAME_PROMPT) != _LOGIN_OK:
             raise WattboxAuthError("username or password rejected")
@@ -219,6 +235,8 @@ class WattboxDevice:
     async def _async_connect(self) -> None:
         """Open and log in to a new session, unless one is already open."""
         async with self._connect_lock:
+            if self._closed:
+                raise WattboxConnectionError(f"{self.host}: client closed")
             if self.connected:
                 return
             _LOGGER.debug("%s: connecting", self.host)
@@ -239,6 +257,11 @@ class WattboxDevice:
             except (TimeoutError, OSError, WattboxConnectionError) as err:
                 await self._async_drop()
                 raise WattboxConnectionError(f"login to {self.host} failed: {err!r}") from err
+            if self._closed or self._reader is None:
+                # Closed while logging in (entry unloading): don't leave a session behind.
+                await self._async_drop()
+                raise WattboxConnectionError(f"{self.host}: client closed")
+            self._logged_in = True
             self._listener = self._hass.async_create_background_task(
                 self._listen(self._reader), f"snapav_wattbox listener {self.host}"
             )
@@ -309,6 +332,7 @@ class WattboxDevice:
             self._publish(replace(self.state, outlets_on=parse_outlet_status(value)))
 
     def _publish(self, state: WattboxState) -> None:
+        self._publish_count += 1
         self.state = state
         if self._push is not None:
             self._push(state)
@@ -323,18 +347,23 @@ class WattboxDevice:
                     self._handle_line(text)
                 except ValueError:
                     _LOGGER.warning("%s: could not parse %r", self.host, text)
-        except (OSError, asyncio.IncompleteReadError) as err:
+                except Exception:
+                    _LOGGER.exception("%s: error handling %r", self.host, text)
+        except (OSError, ValueError, asyncio.IncompleteReadError) as err:
+            # ValueError: a line longer than the stream limit.
             _LOGGER.debug("%s: read failed: %r", self.host, err)
-        if self._reader is reader:
-            _LOGGER.info("%s: connection closed", self.host)
-            await self._async_drop(from_listener=True)
-            if self._push is not None:
-                self._push(None)
+        finally:
+            if self._reader is reader:
+                _LOGGER.info("%s: connection closed", self.host)
+                await self._async_drop(from_listener=True)
+                if self._push is not None:
+                    self._push(None)
 
     async def _async_drop(self, from_listener: bool = False) -> None:
         """Forget the current session and fail whatever was waiting on it."""
         writer, listener = self._writer, self._listener
         self._reader = self._writer = self._listener = None
+        self._logged_in = False
         while self._pending:
             pending = self._pending.popleft()
             if not pending.future.done():
@@ -350,8 +379,9 @@ class WattboxDevice:
                 pass
 
     async def async_close(self) -> None:
-        """Log out and close the session."""
-        if self.connected:
+        """Log out and close the session; the client can't reconnect afterwards."""
+        self._closed = True
+        if self.connected and self._logged_in:
             with contextlib.suppress(OSError):
                 self._write("!Exit")
         self._push = None
@@ -412,27 +442,28 @@ class WattboxDevice:
             "outlets": self._query("OutletStatus"),
             "auto_reboot": self._optional_query("AutoReboot"),
         }
-        if self._power_supported:
+        if self.metered:
             requests["power"] = self._optional_query("PowerStatus")
             if outlet_metering:
                 for i in range(1, len(self.info.outlet_names) + 1):
                     requests[f"outlet{i}"] = self._optional_query("OutletPowerStatus", str(i))
         if self.info.has_ups:
             requests["ups"] = self._optional_query("UPSStatus")
+        published = self._publish_count
         values = dict(zip(requests, await self._gather(*requests.values()), strict=True))
-
-        if self._power_supported and values.get("power") is None:
-            # WB-150/250 have no meter; stop asking.
-            _LOGGER.debug("%s: no power metering", self.host)
-            self._power_supported = False
         try:
             outlet_power = dict(
                 parse_outlet_power(value)
                 for name, value in values.items()
                 if name.startswith("outlet") and name != "outlets" and value
             )
+            outlets_on = parse_outlet_status(values["outlets"])
+            if self._publish_count != published:
+                # A push or command result arrived while this poll was in
+                # flight; it's newer than the poll's answer.
+                outlets_on = self.state.outlets_on
             state = WattboxState(
-                outlets_on=parse_outlet_status(values["outlets"]),
+                outlets_on=outlets_on,
                 outlet_power=outlet_power,
                 power=parse_power_status(values["power"]) if values.get("power") else None,
                 auto_reboot=(
@@ -446,9 +477,8 @@ class WattboxDevice:
         return state
 
     async def _refresh_outlets(self) -> None:
-        self._publish(
-            replace(self.state, outlets_on=parse_outlet_status(await self._query("OutletStatus")))
-        )
+        outlets_on = parse_outlet_status(await self._query("OutletStatus"))
+        self._publish(replace(self.state, outlets_on=outlets_on))
 
     async def async_set_outlet(self, outlet: int, action: str) -> None:
         """Send ON, OFF or RESET to an outlet (1-based) and report the result."""
@@ -458,8 +488,8 @@ class WattboxDevice:
     async def async_set_auto_reboot(self, enabled: bool) -> None:
         """Turn auto reboot on or off."""
         await self._command("AutoReboot", "1" if enabled else "0")
-        value = await self._query("AutoReboot")
-        self._publish(replace(self.state, auto_reboot=value.strip() == "1"))
+        auto_reboot = (await self._query("AutoReboot")).strip() == "1"
+        self._publish(replace(self.state, auto_reboot=auto_reboot))
 
     async def async_set_outlet_name(self, outlet: int, name: str) -> None:
         """Rename an outlet (1-based) on the unit."""
@@ -471,11 +501,17 @@ class WattboxDevice:
         # The unit only takes spaces through OutletNameSetAll, so re-read the
         # current names and send them all back with this one changed.
         async with self._rename_lock:
-            names = parse_outlet_names(await self._query("OutletName"), count)
+            # Unnamed outlets go back as the unit had them, not as our defaults.
+            names = raw_outlet_names(await self._query("OutletName"), count)
             names[outlet - 1] = name
             await self._command("OutletNameSetAll", ",".join(f"{{{n}}}" for n in names))
             names = parse_outlet_names(await self._query("OutletName"), count)
         self.info = replace(self.info, outlet_names=names)
+
+    @property
+    def metered(self) -> bool:
+        """Whether the unit has power metering, judged by its model."""
+        return self.info is not None and is_metered(self.info.model)
 
     async def async_test_connection(self) -> WattboxInfo:
         """Log in, read the unit's identity, and disconnect."""

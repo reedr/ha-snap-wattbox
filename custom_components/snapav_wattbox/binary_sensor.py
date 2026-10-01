@@ -59,7 +59,7 @@ async def async_setup_entry(
     """Add the voltage-safety sensor, and UPS sensors if one is attached."""
     coord = entry.runtime_data
     descs: list[WattboxBinarySensorDescription] = []
-    if coord.data.power is not None:
+    if coord.device.metered:
         descs.append(SAFE_VOLTAGE)
     if coord.info.has_ups:
         descs += UPS_BINARY_SENSORS

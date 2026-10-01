@@ -60,15 +60,47 @@ async def test_info_and_update(hass: HomeAssistant, wattbox) -> None:
     assert wattbox.open_clients == 0
 
 
-async def test_no_metering(hass: HomeAssistant, wattbox) -> None:
-    """Units without a meter answer #Error, and aren't asked again."""
+async def test_no_metering_on_unmetered_models(hass: HomeAssistant, wattbox) -> None:
+    """WB-150/250 have no meter: power is never asked for."""
+    wattbox.model = "WB-250-IPW-2"
     wattbox.metering = False
     dev = WattboxDevice(hass, HOST, "wattbox", "pass")
     state = await dev.async_update(outlet_metering=True)
+    assert not dev.metered
     assert state.power is None and state.outlet_power == {}
-    wattbox.commands.clear()
-    await dev.async_update(outlet_metering=True)
     assert not any("Power" in c for c in wattbox.commands)
+    await dev.async_close()
+
+
+async def test_metering_survives_a_transient_error(hass: HomeAssistant, wattbox) -> None:
+    """One #Error on a metered unit doesn't turn metering off."""
+    dev = WattboxDevice(hass, HOST, "wattbox", "pass")
+    wattbox.metering = False
+    state = await dev.async_update(outlet_metering=True)
+    assert dev.metered and state.power is None
+    wattbox.metering = True
+    state = await dev.async_update(outlet_metering=True)
+    assert state.power is not None and state.outlet_power
+    await dev.async_close()
+
+
+async def test_closed_client_does_not_reconnect(hass: HomeAssistant, wattbox) -> None:
+    dev = WattboxDevice(hass, HOST, "wattbox", "pass")
+    await dev.async_update(outlet_metering=False)
+    await dev.async_close()
+    with pytest.raises(WattboxConnectionError):
+        await dev.async_update(outlet_metering=False)
+    assert wattbox.logins == 1
+
+
+async def test_rename_keeps_other_names_raw(hass: HomeAssistant, wattbox) -> None:
+    """Unnamed outlets are sent back as the unit had them, not as 'Outlet N'."""
+    wattbox.names[2] = ""
+    dev = WattboxDevice(hass, HOST, "wattbox", "pass")
+    await dev.async_get_info()
+    await dev.async_set_outlet_name(1, "Rack")
+    sent = next(c for c in wattbox.commands if c.startswith("!OutletNameSetAll"))
+    assert sent == "!OutletNameSetAll={Rack},{Amp},{},{Roku},{Port},{Savant}"
     await dev.async_close()
 
 
